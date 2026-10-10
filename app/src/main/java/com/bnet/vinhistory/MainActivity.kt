@@ -38,6 +38,23 @@ class MainActivity : Activity() {
         setContentView(root)
     }
     private fun open(url: String) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+    private fun vinCheckDigitValid(v: String): Boolean {
+        if (v.length != 17 || !v[8].isDigit() && v[8] != 'X') return false
+        val weights = intArrayOf(8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2)
+        val map = "0123456789.ABCDEFGH..JKLMN.P.R..STUVWXYZ"
+        var sum = 0
+        for (i in v.indices) {
+            val ch = v[i]
+            val value = if (ch.isDigit()) ch.digitToInt() else when(ch) {
+                'A','J' -> 1; 'B','K','S' -> 2; 'C','L','T' -> 3; 'D','M','U' -> 4;
+                'E','N','V' -> 5; 'F','W' -> 6; 'G','P','X' -> 7; 'H','Y' -> 8; 'R','Z' -> 9;
+                else -> return false
+            }
+            sum += value * weights[i]
+        }
+        val expected = sum % 11
+        return v[8] == (if (expected == 10) 'X' else ('0' + expected))
+    }
     private fun lookup() {
         val id = vin.text.toString().trim().uppercase()
         if (!id.matches(Regex("[A-HJ-NPR-Z0-9]{17}"))) { Toast.makeText(this, "VIN invalide : 17 caractères, sans I, O, Q", Toast.LENGTH_LONG).show(); return }
