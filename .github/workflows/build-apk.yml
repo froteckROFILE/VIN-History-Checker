@@ -2,39 +2,60 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths-ignore:
+      - 'build-diagnostics/**'
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
-    timeout-minutes: 30
+      contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Configure Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install SDK platform
+      - uses: actions/checkout@v4
+      - name: Prepare diagnostic file
+        run: mkdir -p build-diagnostics && echo "Run: $GITHUB_RUN_ID" > build-diagnostics/latest.log
+      - name: Set up Java and Android
+        id: setup
+        continue-on-error: true
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-      - name: Build APK with diagnostic logs
-        run: gradle --no-daemon --stacktrace --info assembleDebug
+          set -o pipefail
+          {
+            echo "=== Java ==="
+            java -version
+            echo "=== Android SDK ==="
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "=== Gradle installation ==="
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /opt
+            echo "=== SDK packages ==="
+            yes | sdkmanager --licenses || true
+            sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          } 2>&1 | tee -a build-diagnostics/latest.log
+      - name: Build debug APK
+        if: steps.setup.outcome == 'success'
+        id: compile
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          /opt/gradle-8.9/bin/gradle --no-daemon --stacktrace assembleDebug 2>&1 | tee -a build-diagnostics/latest.log
+      - name: Save diagnostics to repository
+        if: always()
+        run: |
+          echo "Setup: ${{ steps.setup.outcome }}" >> build-diagnostics/latest.log
+          echo "Compile: ${{ steps.compile.outcome }}" >> build-diagnostics/latest.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build-diagnostics/latest.log
+          git commit -m "Record APK build diagnostics [skip ci]" || true
+          git push || true
       - name: Upload APK
-        if: success()
+        if: steps.compile.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: VINHistoryChecker-debug-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+      - name: Fail if build failed
+        if: steps.setup.outcome != 'success' || steps.compile.outcome != 'success'
+        run: exit 1
