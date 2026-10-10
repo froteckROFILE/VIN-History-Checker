@@ -1,4 +1,5 @@
 name: Build Android APK
+# Workflow refresh to request a new build
 on:
   workflow_dispatch:
   push:
